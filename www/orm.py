@@ -66,6 +66,56 @@ def log(sql, args):
 # ---------------------
 
 
+# 定义ModelMetaclass
+class ModelMetaclass(type):
+    def __new__(cls, name, bases, attrs):
+        # 排除model类本身
+        if name == 'Model':
+            return type.__new__(cls, name, bases, attrs)
+        # 获取table名称
+        table_name = attrs.get('__table__', None) or name
+        logging.info('found model: %s (table:%s)' % (name, table_name))
+        # 获取所有的field和主键名
+        mappings = dict()
+        fields = []
+        primary_key = None
+        for k, v in attrs.items():
+            if isinstance(v, Field):
+                logging.info('found mapping:%s===>%s' % (k, v))
+                mappings[k] = v
+                if v.primary_key:
+                    # 找到主键
+                    if primary_key:
+                        raise RuntimeError('Duplicate primary key for field: %s' % k)
+                    primary_key = v
+
+                else:
+                    fields.append(k)
+        if not primary_key:
+            raise RuntimeError('Primary key not found.')
+
+        for k in mappings.keys():
+            attrs.pop(k)
+        escaped_fields = list(map(lambda f: '`%s`' % f, fields))
+        attrs['__mappings__'] = mappings  # 保存属性和列的映射关系
+        attrs['__table__'] = table_name
+        attrs['__primary_key__'] = primary_key  # 主键属性名
+        attrs['__fields__'] = fields  # 除主键外的属性名
+        # 构造默认的select， insert, update , delate
+        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primary_key, ','.join(escaped_fields), table_name)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (table_name, ', '.join(escaped_fields), primary_key, create_args_string(len(escaped_fields) + 1))
+        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (table_name, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primary_key)
+        attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (table_name, primary_key)
+        return type.__new__(cls, name, bases, attrs)
+
+
+def create_args_string(num):
+    sql_line = []
+    for n in range(num):
+        sql_line.append('?')
+    return ', '.join(sql_line)
+
+
 # 定义Model
 class Model(dict, metaclass=ModelMetaclass):
     def __init__(self, **kw):
@@ -80,20 +130,21 @@ class Model(dict, metaclass=ModelMetaclass):
     def __setattr__(self, key, value):
         self[key] = value
 
-    def getValue(self, key):
+    def getvalue(self, key):
         return getattr(self, key, None)
 
-    def getValuOrDefault(self, key):
+    def getvalueordefault(self, key):
         value = getattr(self, key, None)
         if value is None:
             field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
-                logging.debug('Using dfeault value for %s:%s' % (key, str(value)))
+                logging.debug('Using default value for %s:%s' % (key, str(value)))
                 setattr(self, key, value)
         return value
 
 
+# 定义字段
 class Field(object):
     def __init__(self, name, column_type, primary_key, default):
         self.name = name
@@ -106,9 +157,25 @@ class Field(object):
 
 
 class StringField(Field):
-    def __init__(self, name = None, primary_key = False, default = None, ddl='varchar(100)'):
+    def __init__(self, name=None, primary_key=False, default=None, ddl='varchar(100)'):
         super().__init__(name, ddl, primary_key, default)
 
 
 class IntegerField(Field):
-    pass
+    def __init__(self, name=None, primary_key=False, default=0):
+        super().__init__(name, 'bigint', primary_key, default)
+
+
+class BooleanField(Field):
+    def __init__(self, name=None, default=False):
+        super().__init__(name, 'boolean', False, default)
+
+
+class FloatField(Field):
+    def __init__(self, name=None, default=0.0):
+        super().__init__(name, 'real', False, default)
+
+
+class TextField(Field):
+    def __init__(self, name=None, default=None):
+        super().__init__(name, 'text', False, default)
