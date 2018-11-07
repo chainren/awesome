@@ -149,7 +149,29 @@ class Model(dict, metaclass=ModelMetaclass):
         args.append(self.getvalueordefault(self.__primary_key__))
         rows = yield from execute(self.__insert__, args)
         if rows != 1:
-            logging.warn('failed to insert record: affected rows: %s' % rows)
+            logging.warning('Failed to insert record: affected rows : %s' % rows)
+
+    @asyncio.coroutine
+    def find(self, cls, pk):
+        rs = yield from select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+        if len(rs) == 0:
+            return None
+        return cls(**rs[0])
+
+    @asyncio.coroutine
+    def update(self):
+        args = list(map(self.getvalue, self.__fields__))
+        args.append(self.getvalue(self.__primary_key__))
+        rows = yield from execute(self.__update__, args)
+        if rows != 1:
+            logging.warning('Failed to update by primary key : effected rows : %s' % rows)
+
+    @asyncio.coroutine
+    def remove(self):
+        args = [self.getvalue(self.__primary_key__)]
+        rows = yield from execute(self.__delete__, args)
+        if rows != 1:
+            logging.warning('Failed to remove by primary key: effected rows : %s' % rows)
 
 
 # 定义字段
