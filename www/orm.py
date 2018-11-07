@@ -143,6 +143,14 @@ class Model(dict, metaclass=ModelMetaclass):
                 setattr(self, key, value)
         return value
 
+    @asyncio.coroutine
+    def save(self):
+        args = list(map(self.getvalueordefault, self.__fields__))
+        args.append(self.getvalueordefault(self.__primary_key__))
+        rows = yield from execute(self.__insert__, args)
+        if rows != 1:
+            logging.warn('failed to insert record: affected rows: %s' % rows)
+
 
 # 定义字段
 class Field(object):
