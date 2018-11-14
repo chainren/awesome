@@ -145,6 +145,7 @@ class Model(dict, metaclass=ModelMetaclass):
 
     @asyncio.coroutine
     def save(self):
+        logging.info('save model %s' % self)
         args = list(map(self.getvalueordefault, self.__fields__))
         args.append(self.getvalueordefault(self.__primary_key__))
         rows = yield from execute(self.__insert__, args)

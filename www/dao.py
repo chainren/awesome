@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import orm
+import asyncio
 
 from models import User, Blog, Comment
 
@@ -13,5 +14,10 @@ def test():
     yield from u.save()
 
 
-for x in test():
-    pass
+if __name__ == 'main':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(test(loop))
+    loop.close()
+
+
+
