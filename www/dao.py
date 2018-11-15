@@ -3,7 +3,7 @@
 import orm
 import asyncio
 
-from models import User, Blog, Comment
+from models import User
 
 
 def test():
@@ -11,7 +11,7 @@ def test():
 
     u = User(name='Test', email='test@123.com', passwd='1234567890', image='about:blank')
 
-    yield from u.save()
+    #yield from u.save()
 
 
 if __name__ == 'main':
