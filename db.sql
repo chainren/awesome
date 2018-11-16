@@ -2,7 +2,7 @@ drop database if exists awesome;
 
 create database awesome;
 
-create table users (
+create table user (
     `id` varchar(50) not null,
     `email` varchar(50) not null,
     `passwd` varchar(50) not null,
@@ -15,7 +15,7 @@ create table users (
     primary key (`id`)
 ) engine=innodb default charset=utf8;
 
-create table blogs (
+create table blog (
     `id` varchar(50) not null,
     `user_id` varchar(50) not null,
     `user_name` varchar(50) not null,
@@ -28,7 +28,7 @@ create table blogs (
     primary key (`id`)
 ) engine=innodb default charset=utf8;
 
-create table comments (
+create table comment (
     `id` varchar(50) not null,
     `blog_id` varchar(50) not null,
     `user_id` varchar(50) not null,

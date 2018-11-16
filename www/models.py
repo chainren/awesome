@@ -22,7 +22,7 @@ class User(Model):
 
 
 class Blog(Model):
-    __table__ = 'blogs'
+    __table__ = 'blog'
 
     id = StringField(primary_key=True, default=next_id, ddl='varchar(50)')
     user_id = StringField(ddl='varchar(50)')
@@ -35,7 +35,7 @@ class Blog(Model):
 
 
 class Comment(Model):
-    __table__ = 'comments'
+    __table__ = 'comment'
 
     id = StringField(primary_key=True, default=next_id, ddl='varchar(50)')
     blog_id = StringField(ddl='varchar(50)')

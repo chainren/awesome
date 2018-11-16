@@ -1,18 +1,17 @@
 # -*- coding:utf-8 -*-
 
-import asyncio
-import logging;
+import logging
+
+import aiomysql
 
 logging.basicConfig(level=logging.INFO)
-import aiomysql
 
 
 # 创建连接池
-@asyncio.coroutine
-def create_pool(loop, **kw):
+async def create_pool(loop, **kw):
     logging.info('Create database connection pool...')
     global __pool
-    __pool = yield from aiomysql.create_pool(
+    __pool = await aiomysql.create_pool(
         host=kw.get('host', 'localhost'),
         port=kw.get('port', 3306),
         user=kw['user'],
@@ -27,34 +26,36 @@ def create_pool(loop, **kw):
 
 
 # select 方法
-@asyncio.coroutine
-def select(sql, args, size=None):
+async def select(sql, args, size=None):
     log(sql, args)
     global __pool
-    with (yield from __pool) as conn:
-        cur = yield from conn.cursor(aiomysql.DictCursor)
-        yield from cur.execute(sql.replace('?', '%s'), args or ())
+    async with __pool.get() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(sql.replace('?', '%s'), args or ())
         if size:
-            rs = yield from cur.fetchmany(size)
+            rs = await cur.fetchmany(size)
         else:
-            rs = yield from cur.fetchall()
-        yield from cur.close()
+            rs = await cur.fetchall()
         logging.info('Rows returned:%s' % len(rs))
         return rs
 
 
 # insert,update,delete通用方法
-@asyncio.coroutine
-def execute(sql, args):
+async def execute(sql, args, autocommit=True):
     log(sql, args)
-    with (yield from __pool) as conn:
+    async with __pool.get() as conn:
+        if not autocommit:
+            await conn.begin()
         try:
-            cur = yield from conn.cursor()
-            yield from cur.execute(sql.replace('?', '%s'), args)
-            effected = cur.rowcount
-            yield from cur.close()
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
+                effected = cur.rowcount
+            if not autocommit:
+                await conn.commit()
         except BaseException as e:
-            raise
+            if not autocommit:
+                await conn.rollback()
+            raise e
         return effected
 
 
@@ -87,7 +88,7 @@ class ModelMetaclass(type):
                     # 找到主键
                     if primary_key:
                         raise RuntimeError('Duplicate primary key for field: %s' % k)
-                    primary_key = v
+                    primary_key = k
 
                 else:
                     fields.append(k)
@@ -103,8 +104,10 @@ class ModelMetaclass(type):
         attrs['__fields__'] = fields  # 除主键外的属性名
         # 构造默认的select， insert, update , delate
         attrs['__select__'] = 'select `%s`, %s from `%s`' % (primary_key, ','.join(escaped_fields), table_name)
-        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (table_name, ', '.join(escaped_fields), primary_key, create_args_string(len(escaped_fields) + 1))
-        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (table_name, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primary_key)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (
+            table_name, ', '.join(escaped_fields), primary_key, create_args_string(len(escaped_fields) + 1))
+        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (
+            table_name, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primary_key)
         attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (table_name, primary_key)
         return type.__new__(cls, name, bases, attrs)
 
@@ -114,6 +117,9 @@ def create_args_string(num):
     for n in range(num):
         sql_line.append('?')
     return ', '.join(sql_line)
+
+
+# ----------------------------------
 
 
 # 定义Model
@@ -134,6 +140,7 @@ class Model(dict, metaclass=ModelMetaclass):
         return getattr(self, key, None)
 
     def getvalueordefault(self, key):
+        logging.info('get value or default, the key is %s' % key)
         value = getattr(self, key, None)
         if value is None:
             field = self.__mappings__[key]
@@ -143,37 +150,78 @@ class Model(dict, metaclass=ModelMetaclass):
                 setattr(self, key, value)
         return value
 
-    @asyncio.coroutine
-    def save(self):
+    async def save(self):
         logging.info('save model %s' % self)
         args = list(map(self.getvalueordefault, self.__fields__))
         args.append(self.getvalueordefault(self.__primary_key__))
-        rows = yield from execute(self.__insert__, args)
+        rows = await execute(self.__insert__, args)
         if rows != 1:
             logging.warning('Failed to insert record: affected rows : %s' % rows)
 
-    @asyncio.coroutine
-    def find(self, cls, pk):
-        rs = yield from select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+    async def update(self):
+        args = list(map(self.getvalue, self.__fields__))
+        args.append(self.getvalue(self.__primary_key__))
+        rows = await execute(self.__update__, args)
+        if rows != 1:
+            logging.warning('Failed to update by primary key : effected rows : %s' % rows)
+
+    async def remove(self):
+        args = [self.getvalue(self.__primary_key__)]
+        rows = await execute(self.__delete__, args)
+        if rows != 1:
+            logging.warning('Failed to remove by primary key: effected rows : %s' % rows)
+
+    # 添加类方法
+    @classmethod
+    async def find(cls, pk):
+        """
+        通过主键查询
+        :param pk:
+        :return:
+        """
+        rs = await select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
         if len(rs) == 0:
             return None
         return cls(**rs[0])
 
-    @asyncio.coroutine
-    def update(self):
-        args = list(map(self.getvalue, self.__fields__))
-        args.append(self.getvalue(self.__primary_key__))
-        rows = yield from execute(self.__update__, args)
-        if rows != 1:
-            logging.warning('Failed to update by primary key : effected rows : %s' % rows)
+    # 按条件查询
+    @classmethod
+    async def findall(cls, where=None, args=None, **kw):
+        # 拼接条件查询sql
+        sql = [cls.__select__]
+        if where:
+            sql.append('where')
+            sql.append(where)
+        if args is None:
+            args = []
+        order_by = kw.get('orderBy', None)
+        if order_by:
+            sql.append('order by')
+            sql.append(order_by)
+        limit = kw.get('limit', None)
+        if limit is not None:
+            sql.append('limit')
+            if isinstance(limit, int):
+                sql.append('?')
+                args.append(limit)
+            elif isinstance(limit, tuple) and len(limit) == 2:
+                sql.append('?,?')
+                args.extend(limit)
+            else:
+                raise ValueError('Invalid limit value: %s' % str(limit))
+        rs = await select(' '.join(sql), args)
+        return [cls(**r) for r in rs]
 
-    @asyncio.coroutine
-    def remove(self):
-        args = [self.getvalue(self.__primary_key__)]
-        rows = yield from execute(self.__delete__, args)
-        if rows != 1:
-            logging.warning('Failed to remove by primary key: effected rows : %s' % rows)
-
+    @classmethod
+    async def findnumber(cls, selectfield, where=None, args=None):
+        sql = ['select %s as _num_ from `%s`' % (selectfield, cls.__table__)]
+        if where:
+            sql.append('where')
+            sql.append(where)
+        rs = await select(' '.join(sql), args, 1)
+        if len(rs) == 0:
+            return None
+        return rs[0]['_num_']
 
 # 定义字段
 class Field(object):
