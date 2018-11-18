@@ -5,8 +5,8 @@ from coroweb import get, post
 
 
 @get('/')
-async def index(request):
-    users = await User.findAll()
+async def index():
+    users = await User.findall()
     return {
         '__template__': 'test.html',
         'users': users

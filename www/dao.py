@@ -12,7 +12,7 @@ async def test():
     logging.info('test add user')
     await orm.create_pool(loop, host='localhost', port=3306, user='root', password='root', db='awesome')
 
-    u = User(name='Test', email='test@123.com', passwd='1234567890', image='about:blank')
+    u = User(name='Tom', email='tom@sina.com', passwd='1234567890', image='about:blank')
 
     await u.save()
 

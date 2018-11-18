@@ -16,16 +16,13 @@ def get(path):
     """
     Define decorator @get('/path')
     """
-
-    @functools.wraps(func)
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kw):
             return func(*args, **kw)
-
         wrapper.__method__ = 'GET'
         wrapper.__route__ = path
         return wrapper
-
     return decorator
 
 
@@ -33,16 +30,13 @@ def post(path):
     """
      Define decorator @post('/path')
     """
-
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kw):
             return func(*args, **kw)
-
         wrapper.__method__ = 'POST'
         wrapper.__route__ = path
         return wrapper
-
     return decorator
 
 
@@ -107,7 +101,7 @@ class RequestHandler(object):
 
     async def __call__(self, request):
         kw = None
-        if self._has_var_kw_arg or self._has_named_kw_args or self.required_kw_args:
+        if self._has_var_kw_arg or self._has_named_kw_args or self._required_kw_args:
             if request.method == 'POST':
                 if not request.content_type:
                     return web.HTTPBadRequest('Missing Content-type')
@@ -143,7 +137,7 @@ class RequestHandler(object):
                 kw[k] = v
         if self._has_request_arg:
             kw['request'] = request
-        if self.required_kw_args:
+        if self._required_kw_args:
             for name in self._required_kw_args:
                 if name not in kw:
                     return web.HTTPBadRequest('Missing argument: %s' % name)
