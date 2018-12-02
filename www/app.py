@@ -101,7 +101,14 @@ async def response_factory(app, handler):
     return response
 
 
-#
+# TODO 添加权限拦截器
+async def auth_factory(app, handler):
+    # TODO
+    pass
+
+
+
+# 日期格式化
 def datatime_filter(t):
     delta = int(time.time() - t)
     if delta < 60:
