@@ -64,6 +64,15 @@ def to_signin():
     }
 
 
+# 跳转到日志编辑页
+def to_blog_edit():
+    return {
+        '__template__': 'manage_blog_edit.html',
+        'id': '',
+        'action': '/api/blogs'
+    }
+
+
 # 用户注册方法
 @post('/api/register')
 async def user_register(*, email, name, passwd):
@@ -127,6 +136,23 @@ def signout(request):
     return r
 
 
+# 创建日志
+@post('/api/blogs')
+async def create_blog(request, *, name, summary, content):
+    check_admin(request)
+    if not name or not name.strip():
+        raise APIValueError('name', 'name cannot be empty')
+    if not summary or not summary.strip():
+        raise APIValueError('summary', 'summary cannot be empty')
+    if not content or not content.strip():
+        raise APIValueError('content', 'content cannot be empty')
+    blog = Blog(user_id=request.__user__.id, user_name=request.__user__.name,
+                user_image=request.__user__.image, name=name.strip(), summary=summary.strip(), content=content.strip())
+    await blog.save()
+    return blog
+
+
+
 # 将user信息放入cookie，生成session cookie值
 def user2cookie(user, max_age):
     expires = str(int(time.time() + max_age))
@@ -158,3 +184,9 @@ async def cookie2user(cookie_str):
     except Exception as e:
         logging.exception(e)
         return None
+
+
+# 检查是否为管理员
+def check_admin(request):
+    if request.__user__ is None or not request.__user__.admin:
+        raise APIPermissionError()
