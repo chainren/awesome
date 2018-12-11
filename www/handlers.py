@@ -4,9 +4,10 @@ from aiohttp import web
 
 from models import User, Blog, next_id
 from coroweb import get, post
-from apis import APIError, APIValueError, APIResourceNotFoundError, APIPermissionError
+from apis import APIError, APIValueError, APIResourceNotFoundError, APIPermissionError, Page
 from config import configs
 
+import asyncio
 import logging
 import time
 import re
@@ -65,11 +66,20 @@ def to_signin():
 
 
 # 跳转到日志编辑页
+@get('/view/toBlogEdit')
 def to_blog_edit():
     return {
         '__template__': 'manage_blog_edit.html',
         'id': '',
-        'action': '/api/blogs'
+        'action': '/api/createBlog'
+    }
+
+
+@get('/view/manage/blogs')
+def to_blog_manage(*, page='1'):
+    return {
+        '__template__': 'manage_blogs.html',
+        'page_index': get_page_index(page)
     }
 
 
@@ -137,7 +147,7 @@ def signout(request):
 
 
 # 创建日志
-@post('/api/blogs')
+@post('/api/createBlog')
 async def create_blog(request, *, name, summary, content):
     check_admin(request)
     if not name or not name.strip():
@@ -152,9 +162,40 @@ async def create_blog(request, *, name, summary, content):
     return blog
 
 
+@get('/api/blogs/{id}')
+async def api_get_blog(*, id):
+    blog = await Blog.find(id)
+    return blog
+
+
+@get('/api/blogs')
+async def api_blogs(*, page='1'):
+    page_index = get_page_index(page)
+    num = await Blog.findnumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, blogs=())
+    blogs = await Blog.findall(orderBy='created_at', limit=(p.offset, p.limit))
+    return dict(page=p, blogs=blogs)
+
+
+# 根据字符串page页码，转换成int值
+def get_page_index(page):
+    p = 1
+    try:
+        p = int(page)
+    except ValueError as e:
+        pass
+    if p < 1:
+        p = 1
+    return p
+
 
 # 将user信息放入cookie，生成session cookie值
 def user2cookie(user, max_age):
+    '''
+    Generate cookie str by user.
+    '''
     expires = str(int(time.time() + max_age))
     s = '%s-%s-%s-%s' % (user.id, user.passwd, expires, _COOKIE_KEY)
     L = [user.id, expires, hashlib.sha1(s.encode('utf-8')).hexdigest()]
@@ -162,11 +203,12 @@ def user2cookie(user, max_age):
 
 
 # 根据cookie判断用户是否合法登录用户
+@asyncio.coroutine
 async def cookie2user(cookie_str):
     if not cookie_str:
         return None
     try:
-        L = cookie_str.strip('-')
+        L = cookie_str.split('-')
         if len(L) != 3:
             return None
         uid, expires, sha1 = L
