@@ -21,7 +21,9 @@
                             $form.showFormError(err);
                         }
                         else {
-                            return location.assign('/api/blogs/' + r.id);
+                           // return location.assign('/api/blogs/' + r.id);
+                            // 跳转到日志列表页
+                            return location.assign('/view/manage/blogs');
                         }
                     });
                 }

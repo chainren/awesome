@@ -2,7 +2,7 @@
 
 from aiohttp import web
 
-from models import User, Blog, next_id
+from models import User, Blog, Comment, next_id
 from coroweb import get, post
 from apis import APIError, APIValueError, APIResourceNotFoundError, APIPermissionError, Page
 from config import configs
@@ -13,6 +13,7 @@ import time
 import re
 import hashlib
 import json
+import markdown2
 
 logging.basicConfig(level=logging.INFO)
 
@@ -66,7 +67,7 @@ def to_signin():
 
 
 # 跳转到日志编辑页
-@get('/view/toBlogEdit')
+@get('/view/manage/toBlogEdit')
 def to_blog_edit():
     return {
         '__template__': 'manage_blog_edit.html',
@@ -162,12 +163,22 @@ async def create_blog(request, *, name, summary, content):
     return blog
 
 
+# 获取单条日志内容
 @get('/api/blogs/{id}')
 async def api_get_blog(*, id):
     blog = await Blog.find(id)
-    return blog
+    comments = await Comment.findall('blog_id=?', [id], orderBy='created_at desc')
+    for comment in comments:
+        comment.html_content = text2html(comment.content)
+    blog.html_content = markdown2.markdown(blog.content)
+    return {
+        '__template__': 'blog.html',
+        'blog': blog,
+        'comments': comments
+    }
 
 
+# 获取日志列表
 @get('/api/blogs')
 async def api_blogs(*, page='1'):
     page_index = get_page_index(page)
@@ -232,3 +243,10 @@ async def cookie2user(cookie_str):
 def check_admin(request):
     if request.__user__ is None or not request.__user__.admin:
         raise APIPermissionError()
+
+
+# 将text内容转换成html
+def text2html(content):
+    lines = map(lambda s: '<p>%s</p>' % s.replace('<', '&lt;').replace('>', '&gt;'),
+                filter(lambda s: s.strip() != '', content.split('\n')))
+    return ''.join(lines)
